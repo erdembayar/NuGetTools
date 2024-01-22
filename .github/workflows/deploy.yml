@@ -1,0 +1,169 @@
+name: Deploy
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  PRODUCTION_URL: https://nugettools.azurewebsites.net
+  PACKAGES_DIR: ./src/Knapcode.NuGetTools.Website/packages
+  PUBLISH_DIR: ./src/Knapcode.NuGetTools.Website/bin/publish
+  ZIP_PATH: ./src/Knapcode.NuGetTools.Website/bin/website.zip
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      versions-changed: ${{ steps.check-versions.outputs.versions-changed }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Download NuGet.* packages
+        run: ./Invoke-DownloadPackages.ps1 -PackagesDir $env:PACKAGES_DIR -Force
+
+      - name: Test
+        run: dotnet test --logger "console;verbosity=normal" --configuration Release --no-build
+
+      - name: Publish
+        run: dotnet publish ./src/Knapcode.NuGetTools.Website --output $env:PUBLISH_DIR --configuration Release --no-build
+
+      - name: Zip publish directory
+        run: Compress-Archive -Path $env:PUBLISH_DIR/* -DestinationPath $env:ZIP_PATH
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v4
+        with:
+          name: website
+          path: ${{ env.ZIP_PATH }}
+
+      - name: Check for new versions
+        id: check-versions
+        run: |
+          $report = dotnet run --project ./src/Knapcode.NuGetTools.PackageDownloader --configuration Release -- check-versions $env:PACKAGES_DIR $env:PRODUCTION_URL
+          $report
+          $notMatching = $report | ? { !$_.StartsWith("Matching") }
+          Write-Output "versions-changed=$(($notMatching.Length -ne 0).ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  deploy-to-dev:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    needs: build
+    environment:
+      name: DEV
+      url: ${{ steps.deploy.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: website
+          path: .
+
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        id: deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: NuGetToolsDev
+          package: ./website.zip
+
+  deploy-to-prod:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: windows-latest
+    needs: build
+    environment:
+      name: PROD
+      url: ${{ steps.set-environment-url.outputs.url }}
+
+    env:
+      RESOURCE_GROUP: Knapcode.NuGetTools
+      WEBAPP_NAME: NuGetTools
+      SLOT_NAME: staging
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: website
+          path: .
+
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        id: deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.WEBAPP_NAME }}
+          slot-name: ${{ env.SLOT_NAME }}
+          package: ./website.zip
+
+      - name: Copy packages for tests
+        run: |
+          Expand-Archive -Path ./website.zip -DestinationPath ./website
+          Copy-Item ./website/packages ./src/Knapcode.NuGetTools.Website -Recurse
+
+      - name: Run integration tests
+        run: dotnet test --logger "console;verbosity=normal" --filter "FullyQualifiedName~Knapcode.NuGetTools.Website.Tests.IntegrationTest"
+        env:
+          NUGETTOOLS_BASE_URL: ${{ steps.deploy.outputs.webapp-url }}
+
+      - name: Swap slots
+        if: ${{ needs.build.outputs.versions-changed == 'true' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+        id: swap-slots
+        run: az webapp deployment slot swap -s $env:SLOT_NAME -n $env:WEBAPP_NAME -g $env:RESOURCE_GROUP
+
+      - name: Set environment URL
+        id: set-environment-url
+        run: |
+          if ("${{ steps.swap-slots.outcome }}" -eq "success") {
+            Write-Output "url=$env:PRODUCTION_URL" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Output "url=${{ steps.deploy.outputs.webapp-url }}" >> $env:GITHUB_OUTPUT
+          }

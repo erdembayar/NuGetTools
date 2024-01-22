@@ -1,20 +1,25 @@
-﻿using System.IO;
-using Microsoft.AspNetCore.Hosting;
+using Knapcode.NuGetTools.Website;
+using Microsoft.ApplicationInsights.Extensibility;
 
-namespace Knapcode.NuGetTools.Website
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllersWithViews();
+builder.Services.AddApplicationInsightsTelemetry();
+builder.Services.AddNuGetTools();
+builder.Services.AddSingleton<ITelemetryInitializer, RequestSuccessInitializer>();
+
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment() && !app.Environment.IsAutomation())
 {
-    public class Program
-    {
-        public static void Main()
-        {
-            var host = new WebHostBuilder()
-                .UseKestrel()
-                .UseContentRoot(Directory.GetCurrentDirectory())
-                .UseIISIntegration()
-                .UseStartup<Startup>()
-                .Build();
-
-            host.Run();
-        }
-    }
+    app.UseExceptionHandler("/error");
+    app.UseHsts();
 }
+
+app.UseStaticFiles();
+
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Home}/{action=Index}/{id?}");
+
+app.Run();

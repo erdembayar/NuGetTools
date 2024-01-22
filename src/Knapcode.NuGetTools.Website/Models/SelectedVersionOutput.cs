@@ -1,10 +1,7 @@
-﻿using System.Collections.Generic;
+namespace Knapcode.NuGetTools.Website;
 
-namespace Knapcode.NuGetTools.Website
+public class SelectedVersionOutput
 {
-    public class SelectedVersionOutput
-    {
-        public string CurrentVersion { get; set; }
-        public IEnumerable<VersionUrl> VersionUrls { get; set; }
-    }
+    public required string CurrentVersion { get; set; }
+    public required IEnumerable<VersionUrl> VersionUrls { get; set; }
 }

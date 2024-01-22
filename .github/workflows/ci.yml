@@ -1,0 +1,86 @@
+name: Continuous integration
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+env:
+  PRODUCTION_URL: https://nugettools.azurewebsites.net
+  PACKAGES_DIR: ./src/Knapcode.NuGetTools.Website/packages
+  PUBLISH_DIR: ./src/Knapcode.NuGetTools.Website/bin/publish
+  ZIP_PATH: ./src/Knapcode.NuGetTools.Website/bin/website.zip
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      versions-changed: ${{ steps.check-versions.outputs.versions-changed }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Download NuGet.* packages
+        run: ./Invoke-DownloadPackages.ps1 -PackagesDir $env:PACKAGES_DIR -Force
+
+      - name: Test
+        run: dotnet test --logger "console;verbosity=normal" --configuration Release --no-build
+
+      - name: Publish
+        run: dotnet publish ./src/Knapcode.NuGetTools.Website --output $env:PUBLISH_DIR --configuration Release --no-build
+
+      - name: Zip publish directory
+        run: Compress-Archive -Path $env:PUBLISH_DIR/* -DestinationPath $env:ZIP_PATH
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v4
+        with:
+          name: website
+          path: ${{ env.ZIP_PATH }}
+
+      - name: Check for new versions
+        id: check-versions
+        run: |
+          $report = dotnet run --project ./src/Knapcode.NuGetTools.PackageDownloader --configuration Release -- check-versions $env:PACKAGES_DIR $env:PRODUCTION_URL
+          $report
+          $notMatching = $report | ? { !$_.StartsWith("Matching") }
+          Write-Output "versions-changed=$(($notMatching.Length -ne 0).ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  check-formatting:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      versions-changed: ${{ steps.check-versions.outputs.versions-changed }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes

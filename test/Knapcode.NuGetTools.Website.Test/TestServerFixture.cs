@@ -1,104 +1,119 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using AngleSharp.Dom.Html;
-using AngleSharp.Extensions;
-using AngleSharp.Parser.Html;
+using AngleSharp.Dom;
+using AngleSharp.Html.Dom;
+using AngleSharp.Html.Parser;
 using Knapcode.NuGetTools.Logic;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using NuGet.Versioning;
 
-namespace Knapcode.NuGetTools.Website.Tests
+namespace Knapcode.NuGetTools.Website.Tests;
+
+public class TestServerFixture : IDisposable
 {
-    public class TestServerFixture : IDisposable
+    public static Uri? BaseAddress { get; set; }
+
+    private readonly HtmlParser _htmlParser;
+
+    public TestServerFixture()
     {
-        private readonly HtmlParser _htmlParser;
+        Factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder => builder
+            .UseWebRoot(GetWebRoot())
+            .UseContentRoot(GetContentRoot())
+            .UseEnvironment("Automation"));
+        Server = Factory.Server;
 
-        public TestServerFixture()
+        if (BaseAddress == null)
         {
-            var webHostBuilder = new WebHostBuilder()
-                .UseStartup<Startup>()
-                .UseWebRoot(GetWebRoot())
-                .UseContentRoot(GetContentRoot())
-                .UseEnvironment("Automation");
-            Server = new TestServer(webHostBuilder);
             Client = Server.CreateClient();
-            _htmlParser = new HtmlParser();
         }
-
-        public TestServer Server { get; }
-        public HttpClient Client { get; }
-
-        private static string GetWebRoot()
+        else
         {
-            return Path.Combine(GetContentRoot(), "wwwroot");
-        }
-
-        private static string GetContentRoot()
-        {
-            return Enumerable.Empty<string>()
-                .Concat(new[]
-                {
-                        Path.GetDirectoryName(typeof(IntegrationTest).Assembly.Location),
-                        Directory.GetCurrentDirectory(),
-                })
-                .Select(x => GetContentRoot(x))
-                .FirstOrDefault(x => x != null);
-        }
-
-        private static string GetContentRoot(string currentDirectory)
-        {
-            while (currentDirectory != null && !Directory
-                    .GetFiles(currentDirectory)
-                    .Select(p => Path.GetFileName(p))
-                    .Contains("NuGetTools.sln"))
+            var handler = new HttpClientHandler
             {
-                currentDirectory = Path.GetDirectoryName(currentDirectory);
-            }
-
-            if (currentDirectory == null)
+                AllowAutoRedirect = false,
+            };
+            Client = new HttpClient(handler)
             {
-                return null;
-            }
-
-            return Path.Combine(currentDirectory, "src", "Knapcode.NuGetTools.Website");
+                BaseAddress = BaseAddress,
+            };
         }
 
-        public async Task<List<NuGetVersion>> GetAvailableVersionsAsync()
-        {
-            var toolsFactory = Server.Host.Services.GetRequiredService<IToolsFactory>();
-            var versionStrings = await toolsFactory.GetAvailableVersionsAsync(CancellationToken.None);
-            return versionStrings
-                .Select(x => new NuGetVersion(x))
-                .ToList();
-        }
+        _htmlParser = new HtmlParser();
+    }
 
-        public async Task<IHtmlDocument> GetDocumentAsync(HttpResponseMessage response)
-        {
-            using (var stream = await response.Content.ReadAsStreamAsync())
+    internal WebApplicationFactory<Program> Factory { get; }
+    public TestServer Server { get; }
+    public HttpClient Client { get; }
+
+    private static string GetWebRoot()
+    {
+        return Path.Combine(GetContentRoot(), "wwwroot");
+    }
+
+    private static string GetContentRoot()
+    {
+        return Enumerable
+            .Empty<string>()
+            .Concat(new[]
             {
-                return await _htmlParser.ParseAsync(stream);
-            }
+                Path.GetDirectoryName(typeof(IntegrationTest).Assembly.Location),
+                Directory.GetCurrentDirectory(),
+            })
+            .Where(x => x is not null)
+            .Select(x => GetContentRoot(x!))
+            .First(x => x is not null)!;
+    }
+
+    private static string? GetContentRoot(string startingDirectory)
+    {
+        string? currentDirectory = startingDirectory;
+        while (currentDirectory != null && !Directory
+                .GetFiles(currentDirectory)
+                .Select(p => Path.GetFileName(p))
+                .Contains("NuGetTools.sln"))
+        {
+            currentDirectory = Path.GetDirectoryName(currentDirectory);
         }
 
-        public async Task<string> GetFlattenedTextAsync(HttpResponseMessage response)
+        if (currentDirectory is null)
         {
-            var document = await GetDocumentAsync(response);
-            var textContent = document.DocumentElement.Text();
-            return Regex.Replace(textContent, @"\s+", " ", RegexOptions.Multiline);
+            return null;
         }
 
-        public void Dispose()
+        return Path.Combine(currentDirectory, "src", "Knapcode.NuGetTools.Website");
+    }
+
+    public async Task<List<NuGetVersion>> GetAvailableVersionsAsync()
+    {
+        var toolsFactory = Factory.Services.GetRequiredService<IToolsFactory>();
+        var versionStrings = await toolsFactory.GetAvailableVersionsAsync(CancellationToken.None);
+        return versionStrings
+            .Select(x => new NuGetVersion(x))
+            .ToList();
+    }
+
+    public async Task<IHtmlDocument> GetDocumentAsync(HttpResponseMessage response)
+    {
+        using (var stream = await response.Content.ReadAsStreamAsync())
         {
-            Client.Dispose();
-            Server.Dispose();
+            return await _htmlParser.ParseDocumentAsync(stream);
         }
+    }
+
+    public async Task<string> GetFlattenedTextAsync(HttpResponseMessage response)
+    {
+        var document = await GetDocumentAsync(response);
+        var textContent = document.DocumentElement.Text();
+        return Regex.Replace(textContent, @"\s+", " ", RegexOptions.Multiline);
+    }
+
+    public void Dispose()
+    {
+        Client.Dispose();
+        Server.Dispose();
     }
 }

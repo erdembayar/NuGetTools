@@ -1,12 +1,9 @@
-﻿using Microsoft.AspNetCore.Hosting;
+namespace Microsoft.Extensions.Hosting;
 
-namespace Knapcode.NuGetTools.Website
+public static class ExtensionMethods
 {
-    public static class ExtensionMethods
+    public static bool IsAutomation(this IHostEnvironment env)
     {
-        public static bool IsAutomation(this IHostingEnvironment env)
-        {
-            return env.IsEnvironment("Automation");
-        }
+        return env.IsEnvironment("Automation");
     }
 }

@@ -1,7 +1,6 @@
-﻿namespace Knapcode.NuGetTools.Website
+namespace Knapcode.NuGetTools.Website;
+
+public class SelectedVersionOutput<T> : SelectedVersionOutput
 {
-    public class SelectedVersionOutput<T> : SelectedVersionOutput
-    {
-        public T Output { get; set; }
-    }
+    public required T Output { get; set; }
 }

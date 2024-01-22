@@ -1,46 +1,58 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 
-namespace Knapcode.NuGetTools.Website
-{
-    public abstract class ActionTagHelper : TagHelper
-    {
-        private readonly IUrlHelperFactory _urlHelperFactory;
+namespace Knapcode.NuGetTools.Website;
 
-        public ActionTagHelper(IUrlHelperFactory urlHelperFactory)
+public abstract class ActionTagHelper : TagHelper
+{
+    private readonly IUrlHelperFactory _urlHelperFactory;
+
+    public ActionTagHelper(IUrlHelperFactory urlHelperFactory)
+    {
+        _urlHelperFactory = urlHelperFactory;
+    }
+
+    [ViewContext]
+    public ViewContext? ViewContext { get; set; }
+
+    public string? Value { get; set; }
+
+    protected abstract string ActionName { get; }
+    protected abstract RouteValueDictionary GetRouteValues(string value);
+
+    public override void Process(TagHelperContext context, TagHelperOutput output)
+    {
+        // build the output
+        output.TagName = "a";
+
+        if (Value is null || ViewContext is null)
         {
-            _urlHelperFactory = urlHelperFactory;
+            return;
         }
 
-        [ViewContext]
-        public ViewContext ViewContext { get; set; }
+        // get the action URL
+        var urlHelper = _urlHelperFactory.GetUrlHelper(ViewContext);
 
-        public string Value { get; set; }
+        var routeValues = GetRouteValues(Value);
 
-        protected abstract string ActionName { get; }
-        protected abstract object GetRouteValues(string value);
-
-        public override void Process(TagHelperContext context, TagHelperOutput output)
+        const string nuGetVersionKey = "nuGetVersion";
+        if (!routeValues.ContainsKey(nuGetVersionKey)
+            && ViewContext.RouteData.Values.TryGetValue(nuGetVersionKey, out var nuGetVersion))
         {
-            // get the action URL
-            var urlHelper = _urlHelperFactory.GetUrlHelper(ViewContext);
-            var href = urlHelper.Action(
-                ActionName,
-                HomeController.ControllerName,
-                GetRouteValues(Value));
+            routeValues.Add(nuGetVersionKey, nuGetVersion);
+        }
 
-            // build the output
-            output.TagName = "a";
-            output.Attributes.Add("href", href);
+        var href = urlHelper.Action(ActionName, "Home", routeValues);
 
-            if (output.TagMode != TagMode.StartTagAndEndTag)
-            {
-                output.TagMode = TagMode.StartTagAndEndTag;
-                output.Content = new DefaultTagHelperContent().Append(Value);
-            }
+        output.Attributes.Add("href", href);
+
+        if (output.TagMode != TagMode.StartTagAndEndTag)
+        {
+            output.TagMode = TagMode.StartTagAndEndTag;
+            output.Content = new DefaultTagHelperContent().Append(Value);
         }
     }
 }

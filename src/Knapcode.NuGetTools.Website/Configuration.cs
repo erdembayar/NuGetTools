@@ -1,43 +1,43 @@
-﻿using System;
 using System.Globalization;
-using System.Linq;
 using System.Reflection;
+using NuGet.Versioning;
 
-namespace Knapcode.NuGetTools.Website
+namespace Knapcode.NuGetTools.Website;
+
+public static class Configuration
 {
-    public static class Configuration
+    static Configuration()
     {
-        static Configuration()
+        var assembly = typeof(Configuration).GetTypeInfo().Assembly!;
+
+        AssemblyVersion = assembly
+            .GetCustomAttribute<AssemblyVersionAttribute>()?
+            .Version!;
+
+        AssemblyFileVersion = assembly
+            .GetCustomAttribute<AssemblyFileVersionAttribute>()?
+            .Version!;
+
+        AssemblyInformationalVersion = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion!;
+
+        if (SemanticVersion.TryParse(AssemblyInformationalVersion, out var version))
         {
-            var assembly = typeof(Configuration).GetTypeInfo().Assembly;
-
-            AssemblyVersion = assembly
-                .GetCustomAttribute<AssemblyVersionAttribute>()?
-                .Version;
-
-            AssemblyFileVersion = assembly
-                .GetCustomAttribute<AssemblyFileVersionAttribute>()?
-                .Version;
-
-            AssemblyInformationalVersion = assembly
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-                .InformationalVersion;
-
-            AssemblyCommitHash = assembly
-                .GetCustomAttributes<AssemblyMetadataAttribute>()
-                .FirstOrDefault(x => x.Key == "CommitHash")?
-                .Value;
-
-            AssemblyBuildTimestamp = DateTimeOffset.Parse(assembly
-                .GetCustomAttributes<AssemblyMetadataAttribute>()
-                .FirstOrDefault(x => x.Key == "BuildTimestamp")?
-                .Value, CultureInfo.InvariantCulture);
+            AssemblyCommitHash = version.Metadata;
+            var shortCommitHash = version.Metadata?.Length > 8 ? version.Metadata.Substring(0, 8) : version.Metadata;
+            AssemblyInformationalVersion = new SemanticVersion(version.Major, version.Minor, version.Patch, version.ReleaseLabels, shortCommitHash).ToFullString();
         }
 
-        public static string AssemblyVersion { get; private set; }
-        public static string AssemblyFileVersion { get; private set; }
-        public static string AssemblyInformationalVersion { get; private set; }
-        public static string AssemblyCommitHash { get; private set; }
-        public static DateTimeOffset AssemblyBuildTimestamp { get; private set; }
+        AssemblyBuildTimestamp = DateTimeOffset.Parse(assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(x => x.Key == "BuildTimestamp")?
+            .Value ?? "2001-01-01", CultureInfo.InvariantCulture);
     }
+
+    public static string AssemblyVersion { get; private set; }
+    public static string AssemblyFileVersion { get; private set; }
+    public static string AssemblyInformationalVersion { get; private set; }
+    public static string? AssemblyCommitHash { get; private set; }
+    public static DateTimeOffset AssemblyBuildTimestamp { get; private set; }
 }

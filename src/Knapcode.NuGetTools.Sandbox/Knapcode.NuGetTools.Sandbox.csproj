@@ -1,23 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
-    <AssemblyName>Knapcode.NuGetTools.Sandbox</AssemblyName>
-    <OutputType>Exe</OutputType>
-    <PackageId>Knapcode.NuGetTools.Sandbox</PackageId>
-    <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
-    <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
-    <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
+    <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Knapcode.NuGetTools.Logic\Knapcode.NuGetTools.Logic.csproj" />
     <ProjectReference Include="..\Knapcode.NuGetTools.Logic.Direct\Knapcode.NuGetTools.Logic.Direct.csproj" />
-  </ItemGroup>
-
-  <ItemGroup Condition=" '$(TargetFramework)' == 'net472' ">
-    <Reference Include="System" />
-    <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
 
 </Project>
